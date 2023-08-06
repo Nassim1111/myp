@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:appointments/view/Widgets/sideimage.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -16,7 +18,8 @@ class _AppointmentState extends State<Appointment> {
   List<Reservation> reservations = [];
   List<String> suggestions = [];
   TextEditingController searchController = TextEditingController();
-  
+  bool isLoading = true;
+
   @override
   void initState() {
     super.initState();
@@ -26,6 +29,7 @@ class _AppointmentState extends State<Appointment> {
 
   @override
   void dispose() {
+    searchController.removeListener(filterReservations);
     searchController.dispose();
     super.dispose();
   }
@@ -37,6 +41,7 @@ class _AppointmentState extends State<Appointment> {
         this.reservations = reservations;
         filteredReservations =
             reservations; // Initialize filtered list with all reservations
+        isLoading = false; // Data fetching completed, set loading to false
       });
       return reservations;
     } catch (e) {
@@ -48,297 +53,340 @@ class _AppointmentState extends State<Appointment> {
   void filterReservations() {
     String query = searchController.text.toLowerCase();
     List<Reservation> filteredList = reservations
-        .where(
-          (reservation) =>
-              reservation.patientName.toLowerCase().contains(query),
-        )
+        .where((reservation) =>
+            reservation.patientName.toLowerCase().contains(query))
         .toList();
-    List<String> suggestedNames =
-        filteredList.map((res) => res.patientName).toList();
 
     setState(() {
       filteredReservations = filteredList;
-      suggestions = suggestedNames;
+      suggestions = filteredList.map((res) => res.patientName).toList();
     });
   }
 
   void _selectSuggestion(String suggestion) {
     setState(() {
       searchController.text = suggestion;
+      filteredReservations = reservations
+          .where((reservation) => reservation.patientName
+              .toLowerCase()
+              .contains(suggestion.toLowerCase()))
+          .toList();
+      suggestions = [];
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        // When tapping on the screen, hide the suggestions and close the keyboard
-        FocusScope.of(context).unfocus(); // Close the keyboard
-        setState(() {
-          suggestions = []; // Hide the suggestions list
-        });
-      },
-      child: MaterialApp(
-        title: 'Appointment',
-        home: ScaffoldMessenger(
-          child: Scaffold(
-            appBar: AppBar(
-              title: const Text("Appointments"),
-            ),
-            body: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: TextField(
-                    controller: searchController,
-                    onChanged: (value) => filterReservations(),
-                    decoration: InputDecoration(
-                      labelText: "Search by patient name",
-                      prefixIcon: Icon(Icons.search),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                    ),
-                  ),
-                ),
-                if (suggestions.isNotEmpty)
+    return MaterialApp(
+      title: 'Appointment',
+      home: Scaffold(
+        appBar: AppBar(
+          title: const Text("Appointments"),
+        ),
+        body: Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: Row(
+                children: [
                   Expanded(
-                    child: ListView.builder(
-                      itemCount: suggestions.length,
-                      itemBuilder: (context, index) {
-                        final suggestion = suggestions[index];
-                        return ListTile(
-                          title: Text(suggestion),
-                          onTap: () => _selectSuggestion(suggestion),
-                        );
-                      },
-                    ),
-                  ),
-                Expanded(
-                  child: filteredReservations.isEmpty
-                      ? Center(
-                          child: Text(
-                            'Not Found',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                    flex: 3,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: TextField(
+                            controller: searchController,
+                            onSubmitted: (value) {
+                              setState(() {
+                                suggestions = [];
+                              });
+                            },
+                            onChanged: (value) => filterReservations(),
+                            decoration: InputDecoration(
+                              labelText: "Search by patient name",
+                              prefixIcon: Icon(Icons.search),
+                              suffixIcon: IconButton(
+                                icon: Icon(Icons.clear),
+                                onPressed: () {
+                                  searchController.clear();
+                                  filterReservations();
+                                  suggestions = [];
+                                },
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(25),
+                              ),
                             ),
                           ),
-                        )
-                      : FutureBuilder<List<Reservation>>(
-                          future: futureAppointments,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState ==
-                                ConnectionState.waiting) {
-                              return Center(
-                                child: CircularProgressIndicator(),
-                              );
-                            } else if (snapshot.hasError) {
-                              return Center(
-                                child: Text('Error: ${snapshot.error}'),
-                              );
-                            } else {
-                              reservations = snapshot.data ?? [];
-                              if (reservations.isEmpty &&
-                                  filteredReservations.isEmpty) {
-                                return Center(
-                                  child: Text(
-                                    'Not Found',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
+                        ),
+                        if (isLoading) // Show loading indicator while data is being fetched
+                          const Expanded(
+                            child: Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                        if (!isLoading && suggestions.isNotEmpty)
+                          Expanded(
+                            child: Stack(
+                              children: [
+                                ListView.builder(
+                                  itemCount: suggestions.length,
+                                  itemBuilder: (context, index) {
+                                    final suggestion = suggestions[index];
+                                    return ListTile(
+                                      title: Text(suggestion),
+                                      onTap: () =>
+                                          _selectSuggestion(suggestion),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (!isLoading &&
+                            filteredReservations
+                                .isEmpty) // Show not found message
+                          const Expanded(
+                            child: Center(
+                              child: Text(
+                                'Not Found',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (!isLoading && filteredReservations.isNotEmpty)
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: filteredReservations.length,
+                              itemBuilder: (context, index) {
+                                final appointment = filteredReservations[index];
+                                return Padding(
+                                  padding: const EdgeInsets.all(15.0),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(25),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Colors.cyan,
+                                          blurRadius: 8,
+                                          spreadRadius: 7,
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                );
-                              }
-                              return ListView.builder(
-                                itemCount: reservations.length,
-                                itemBuilder: (context, index) {
-                                  final appointment = reservations[index];
-                                  return Padding(
-                                    padding: const EdgeInsets.all(15.0),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(25),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.cyan,
-                                            blurRadius: 8,
-                                            spreadRadius: 7,
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(15.0),
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(CupertinoIcons
+                                                  .profile_circled),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "Patient Name:",
+                                                style: TextStyle(
+                                                  color: Colors.cyan,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "${appointment.patientName}",
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  color: CupertinoColors
+                                                      .darkBackgroundGray,
+                                                ),
+                                              ),
+                                              SizedBox(height: 50),
+                                            ],
                                           ),
-                                        ],
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(15.0),
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(CupertinoIcons
-                                                    .profile_circled),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "Patient Name:",
-                                                  style: TextStyle(
-                                                    color: Colors.cyan,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.numbers),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "Age:",
+                                                style: TextStyle(
+                                                  color: Colors.cyan,
+                                                  fontWeight: FontWeight.bold,
                                                 ),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "${appointment.patientName}",
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    color: CupertinoColors
-                                                        .darkBackgroundGray,
-                                                  ),
+                                              ),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "${appointment.age}",
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  color: CupertinoColors
+                                                      .darkBackgroundGray,
                                                 ),
-                                                SizedBox(height: 50),
-                                              ],
-                                            ),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons.numbers),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "Age:",
-                                                  style: TextStyle(
-                                                    color: Colors.cyan,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
+                                              ),
+                                              SizedBox(height: 50),
+                                            ],
+                                          ),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.watch_later),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "Appointment Date:",
+                                                style: TextStyle(
+                                                  color: Colors.cyan,
+                                                  fontWeight: FontWeight.bold,
                                                 ),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "${appointment.age}",
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    color: CupertinoColors
-                                                        .darkBackgroundGray,
-                                                  ),
+                                              ),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "${appointment.appointmentStart}",
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  color: CupertinoColors
+                                                      .darkBackgroundGray,
                                                 ),
-                                                SizedBox(height: 50),
-                                              ],
-                                            ),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons.watch_later),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "Appointment Date:",
-                                                  style: TextStyle(
-                                                    color: Colors.cyan,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
+                                              ),
+                                              SizedBox(height: 50),
+                                            ],
+                                          ),
+                                          Row(
+                                            children: [
+                                              Icon(Icons.meeting_room_outlined),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "Room:",
+                                                style: TextStyle(
+                                                  color: Colors.cyan,
+                                                  fontWeight: FontWeight.bold,
                                                 ),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "${appointment.appointmentStart}",
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    color: CupertinoColors
-                                                        .darkBackgroundGray,
-                                                  ),
+                                              ),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "${appointment.roomNumber}",
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  color: CupertinoColors
+                                                      .darkBackgroundGray,
                                                 ),
-                                                SizedBox(height: 50),
-                                              ],
-                                            ),
-                                            Row(
-                                              children: [
-                                                Icon(Icons
-                                                    .meeting_room_outlined),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "Room:",
-                                                  style: TextStyle(
-                                                    color: Colors.cyan,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
+                                              ),
+                                              SizedBox(height: 50),
+                                            ],
+                                          ),
+                                          Row(
+                                            children: [
+                                              Icon(Icons.chair),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "Chair:",
+                                                style: TextStyle(
+                                                  color: Colors.cyan,
+                                                  fontWeight: FontWeight.bold,
                                                 ),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "${appointment.roomNumber}",
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    color: CupertinoColors
-                                                        .darkBackgroundGray,
-                                                  ),
+                                              ),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "${appointment.chairNumber}",
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  color: CupertinoColors
+                                                      .darkBackgroundGray,
                                                 ),
-                                                SizedBox(height: 50),
-                                              ],
-                                            ),
-                                            Row(
-                                              children: [
-                                                Icon(Icons.chair),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "Chair:",
-                                                  style: TextStyle(
-                                                    color: Colors.cyan,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                                SizedBox(width: 5),
-                                                Text(
-                                                  "${appointment.chairNumber}",
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    color: CupertinoColors
-                                                        .darkBackgroundGray,
-                                                  ),
-                                                ),
-                                                SizedBox(height: 50),
-                                              ],
-                                            ),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Padding(
-                                                  padding:
-                                                      const EdgeInsets.only(
-                                                          left: 20.0,
-                                                          top: 10.0),
-                                                  child: TextButton(
-                                                    style: TextButton.styleFrom(
-                                                      textStyle: TextStyle(
-                                                        color: Colors.red,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                      ),
+                                              ),
+                                              SizedBox(height: 50),
+                                            ],
+                                          ),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                    left: 20.0, top: 10.0),
+                                                child: TextButton(
+                                                  style: TextButton.styleFrom(
+                                                    textStyle: TextStyle(
+                                                      color: Colors.red,
+                                                      fontWeight:
+                                                          FontWeight.bold,
                                                     ),
-                                                    onPressed: () {
-                                                      showDialog(
-                                                        context: context,
-                                                        builder: (context) {
-                                                          return AlertDialog(
-                                                            actions: [
-                                                              TextButton(
-                                                                onPressed:
-                                                                    () async {
-                                                                  Navigator.of(
+                                                  ),
+                                                  onPressed: () {
+                                                    showDialog(
+                                                      context: context,
+                                                      builder: (context) {
+                                                        return AlertDialog(
+                                                          title:
+                                                              SingleChildScrollView(
+                                                            child: Row(
+                                                              children: [
+                                                                Icon(
+                                                                  Icons.warning,
+                                                                  color: Colors
+                                                                      .orange,
+                                                                ),
+                                                                SizedBox(
+                                                                    width: 8),
+                                                                Expanded(
+                                                                    child: Text(
+                                                                        "Canceling Appointment")),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                          content: Column(
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
+                                                            crossAxisAlignment:
+                                                                CrossAxisAlignment
+                                                                    .start,
+                                                            children: [
+                                                              Text(
+                                                                "Are you sure you want to cancel this appointment?",
+                                                                style: TextStyle(
+                                                                    fontSize:
+                                                                        16),
+                                                              ),
+                                                              SizedBox(
+                                                                  height: 8),
+                                                              Text(
+                                                                "Note: Canceling the appointment will remove it permanently.",
+                                                                style: TextStyle(
+                                                                    fontSize:
+                                                                        14,
+                                                                    color: Colors
+                                                                        .grey),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                          actions: [
+                                                            TextButton(
+                                                              onPressed:
+                                                                  () async {
+                                                                Navigator.of(
+                                                                        context)
+                                                                    .pop();
+                                                                try {
+                                                                  await ApiProvider
+                                                                      .cancelAppointment(
+                                                                          appointment
+                                                                              .id);
+                                                                  setState(() {
+                                                                    futureAppointments =
+                                                                        fetchAppointments();
+                                                                  });
+                                                                  ScaffoldMessenger.of(
                                                                           context)
-                                                                      .pop();
-                                                                  try {
-                                                                    await ApiProvider.cancelAppointment(
-                                                                        appointment
-                                                                            .id);
-                                                                    setState(
-                                                                        () {
-                                                                      // Optionally, you can update the appointments list to reflect the canceled appointment
-                                                                      futureAppointments =
-                                                                          fetchAppointments();
-                                                                    });
-                                                                    ScaffoldMessenger.of(
-                                                                            context)
-                                                                        .showSnackBar(
-                                                                            SnackBar(
+                                                                      .showSnackBar(
+                                                                    SnackBar(
                                                                       content:
                                                                           const Text(
                                                                               'Appointment canceled successfully'),
@@ -353,12 +401,13 @@ class _AppointmentState extends State<Appointment> {
                                                                         borderRadius:
                                                                             BorderRadius.circular(20),
                                                                       ),
-                                                                    ));
-                                                                  } catch (e) {
-                                                                    ScaffoldMessenger.of(
-                                                                            context)
-                                                                        .showSnackBar(
-                                                                            SnackBar(
+                                                                    ),
+                                                                  );
+                                                                } catch (e) {
+                                                                  ScaffoldMessenger.of(
+                                                                          context)
+                                                                      .showSnackBar(
+                                                                    SnackBar(
                                                                       content:
                                                                           const Text(
                                                                               'Failed to cancel appointment'),
@@ -373,57 +422,61 @@ class _AppointmentState extends State<Appointment> {
                                                                         borderRadius:
                                                                             BorderRadius.circular(20),
                                                                       ),
-                                                                    ));
-                                                                  } // Close the dialog
-
-                                                                  // Call the cancelAppointment method with the appointment id
-                                                                },
-                                                                child:
-                                                                    Text("Yes"),
+                                                                    ),
+                                                                  );
+                                                                }
+                                                              },
+                                                              child: Text(
+                                                                "Yes, Cancel",
+                                                                style: TextStyle(
+                                                                    color: Colors
+                                                                        .red,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .bold),
                                                               ),
-                                                              TextButton(
-                                                                onPressed: () =>
-                                                                    Navigator.pop(
-                                                                        context,
-                                                                        "No"),
-                                                                child:
-                                                                    Text("No"),
-                                                              ),
-                                                            ],
-                                                            title: Text(
-                                                                "Canceling Appointment"),
-                                                            content: Text(
-                                                                "Do you want to cancel this appointment?"),
-                                                          );
-                                                        },
-                                                      );
-                                                    },
-                                                    child: const Text(
-                                                      "Cancel",
-                                                      style: TextStyle(
-                                                        color: Colors.red,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                      ),
+                                                            ),
+                                                            TextButton(
+                                                              onPressed: () =>
+                                                                  Navigator.pop(
+                                                                      context),
+                                                              child: Text(
+                                                                  "No, Keep"),
+                                                            ),
+                                                          ],
+                                                        );
+                                                      },
+                                                    );
+                                                  },
+                                                  child: const Text(
+                                                    "Cancel",
+                                                    style: TextStyle(
+                                                      color: Colors.red,
+                                                      fontWeight:
+                                                          FontWeight.bold,
                                                     ),
                                                   ),
                                                 ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                  );
-                                },
-                              );
-                            }
-                          },
-                        ),
-                ),
-              ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
+            VerticalDivider(),
+            SideImage(),
+          ],
         ),
       ),
     );
@@ -451,38 +504,38 @@ class Reservation {
       required this.id});
 
   factory Reservation.fromJson(Map<String, dynamic> json) {
-  final appointmentData = json['appointment'];
-  final patientFirstName = appointmentData['patient']['first_name'] as String? ?? '';
-  final patientLastName = appointmentData['patient']['last_name'] as String? ?? '';
+    final appointmentData = json['appointment'];
+    final patientFirstName =
+        appointmentData['patient']['first_name'] as String? ?? '';
+    final patientLastName =
+        appointmentData['patient']['last_name'] as String? ?? '';
 
-  final start = json['start'];
-  final startDateTime = start != null ? DateTime.parse(start) : null;
-  final appointmentStart = startDateTime != null
-      ? '${startDateTime.year}-${startDateTime.month}-${startDateTime.day}'
-      : '';
+    final start = json['start'];
+    final startDateTime = start != null ? DateTime.parse(start) : null;
+    final appointmentStart = startDateTime != null
+        ? '${startDateTime.year}-${startDateTime.month}-${startDateTime.day}'
+        : '';
 
-  return Reservation(
-    id: json['appointment']['id'] as int,
-    patientName: '$patientFirstName $patientLastName',
-   age: calculateAge(appointmentData['patient']['birthdate'] as String?) ?? 0,
-
-    appointmentStart: appointmentStart,
-    roomNumber: json['chair']['room_id'] as int? ?? 0,
-    chairNumber: json['chair']['number'] as int? ?? 0,
-  );
-}
-
+    return Reservation(
+      id: json['appointment']['id'] as int,
+      patientName: '$patientFirstName $patientLastName',
+      age:
+          calculateAge(appointmentData['patient']['birthdate'] as String?) ?? 0,
+      appointmentStart: appointmentStart,
+      roomNumber: json['chair']['room_id'] as int? ?? 0,
+      chairNumber: json['chair']['number'] as int? ?? 0,
+    );
+  }
 
   static int? calculateAge(String? birthdate) {
-  if (birthdate == null) return null;
+    if (birthdate == null) return null;
 
-  final now = DateTime.now();
-  final date = DateTime.parse(birthdate);
-  print('the age');
-  print(now.difference(date).inDays ~/ 365);
-  return now.difference(date).inDays ~/ 365;
-}
-
+    final now = DateTime.now();
+    final date = DateTime.parse(birthdate);
+    print('the age');
+    print(now.difference(date).inDays ~/ 365);
+    return now.difference(date).inDays ~/ 365;
+  }
 
   bool contains(String query) {
     final lowerCaseQuery = query.toLowerCase();
